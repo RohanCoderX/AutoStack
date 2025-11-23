@@ -1,13 +1,10 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
 const crypto = require('crypto');
+const db = require('../utils/sqlite');
 
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
-});
 
 // Register
 router.post('/register', async (req, res) => {
@@ -19,8 +16,8 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists
-    const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existingUser.rows.length > 0) {
+    const existingUser = db.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (existingUser.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
@@ -32,12 +29,13 @@ router.post('/register', async (req, res) => {
     const apiKey = 'as_' + crypto.randomBytes(32).toString('hex');
 
     // Create user
-    const result = await pool.query(
-      'INSERT INTO users (email, password_hash, name, api_key) VALUES ($1, $2, $3, $4) RETURNING id, email, name, subscription_tier',
-      [email, passwordHash, name, apiKey]
+    const userId = crypto.randomUUID();
+    db.query(
+      'INSERT INTO users (id, email, password_hash, name, api_key) VALUES (?, ?, ?, ?, ?)',
+      [userId, email, passwordHash, name, apiKey]
     );
 
-    const user = result.rows[0];
+    const user = db.queryOne('SELECT id, email, name, subscription_tier FROM users WHERE id = ?', [userId]);
 
     // Generate JWT
     const token = jwt.sign(
@@ -73,16 +71,14 @@ router.post('/login', async (req, res) => {
     }
 
     // Find user
-    const result = await pool.query(
-      'SELECT id, email, name, password_hash, subscription_tier, api_key FROM users WHERE email = $1',
+    const user = db.queryOne(
+      'SELECT id, email, name, password_hash, subscription_tier, api_key FROM users WHERE email = ?',
       [email]
     );
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const user = result.rows[0];
 
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -125,16 +121,14 @@ router.get('/me', async (req, res) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const result = await pool.query(
-      'SELECT id, email, name, subscription_tier, api_key FROM users WHERE id = $1',
+    const user = db.queryOne(
+      'SELECT id, email, name, subscription_tier, api_key FROM users WHERE id = ?',
       [decoded.userId]
     );
 
-    if (result.rows.length === 0) {
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    const user = result.rows[0];
     res.json({
       user: {
         id: user.id,
