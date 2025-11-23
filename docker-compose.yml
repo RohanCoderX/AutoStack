@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - JWT_SECRET=${JWT_SECRET:-dev-secret}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:password@postgres:5432/autostack}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - autostack-network
+
+  user-service:
+    build: ./services/user-management
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:password@postgres:5432/autostack}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - autostack-network
+
+  code-analysis:
+    build: ./services/code-analysis
+    environment:
+      - AMAZON_Q_API_KEY=${AMAZON_Q_API_KEY}
+      - SQS_QUEUE_URL=${SQS_QUEUE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:password@postgres:5432/autostack}
+    depends_on:
+      - postgres
+    networks:
+      - autostack-network
+
+  infrastructure-service:
+    build: ./services/infrastructure-generation
+    environment:
+      - AMAZON_Q_API_KEY=${AMAZON_Q_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:password@postgres:5432/autostack}
+    depends_on:
+      - postgres
+    networks:
+      - autostack-network
+
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=autostack
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - autostack-network
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - autostack-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  autostack-network:
+    driver: bridge
