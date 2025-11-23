@@ -30,7 +30,7 @@ chmod 777 data
 
 # Clone AutoStack repository
 yum install -y git
-git clone https://github.com/yourusername/autostack.git /tmp/autostack
+git clone https://github.com/RohanCoderX/AutoStack.git /tmp/autostack
 cp -r /tmp/autostack/services /opt/autostack/
 
 # Start services
@@ -66,6 +66,11 @@ cat > /opt/autostack/health-check.sh << 'EOF'
 curl -f http://localhost:3000/health || exit 1
 EOF
 chmod +x /opt/autostack/health-check.sh
+
+# Install cronie for cron jobs
+yum install -y cronie
+systemctl start crond
+systemctl enable crond
 
 # Add cron job for health monitoring
 echo "*/5 * * * * /opt/autostack/health-check.sh" | crontab -
