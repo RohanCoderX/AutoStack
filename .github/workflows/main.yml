@@ -1,0 +1,36 @@
+name: Simple Test
+on: workflow_dispatch
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Test Secrets
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AMAZON_Q_API_KEY: ${{ secrets.AMAZON_Q_API_KEY }}
+      run: |
+        echo "Testing secrets..."
+        
+        if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+          echo "ERROR: AWS_ACCESS_KEY_ID is empty"
+          exit 1
+        else
+          echo "SUCCESS: AWS_ACCESS_KEY_ID is set"
+        fi
+        
+        if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+          echo "ERROR: AWS_SECRET_ACCESS_KEY is empty"
+          exit 1
+        else
+          echo "SUCCESS: AWS_SECRET_ACCESS_KEY is set"
+        fi
+        
+        if [ -z "$AMAZON_Q_API_KEY" ]; then
+          echo "WARNING: AMAZON_Q_API_KEY is empty"
+        else
+          echo "SUCCESS: AMAZON_Q_API_KEY is set"
+        fi
+        
+        echo "All secrets test completed!"
