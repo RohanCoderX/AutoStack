@@ -33,8 +33,16 @@ yum install -y git
 git clone https://github.com/RohanCoderX/AutoStack.git /tmp/autostack
 cp -r /tmp/autostack/services /opt/autostack/
 
-# Start services
-docker-compose up -d
+# Try to start services with Docker Compose
+if docker-compose up -d; then
+    echo "Docker Compose started successfully"
+else
+    echo "Docker Compose failed, starting API Gateway directly..."
+    # Fallback: Start API Gateway directly
+    cd /opt/autostack
+    chmod +x quick-start.sh
+    ./quick-start.sh
+fi
 
 # Create systemd service for auto-start
 cat > /etc/systemd/system/autostack.service << EOF
