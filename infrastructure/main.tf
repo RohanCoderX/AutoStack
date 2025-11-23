@@ -1,4 +1,6 @@
-# AutoStack Production Infrastructure
+# AutoStack Minimal Infrastructure for 10 Users
+# Monthly Cost: ~$8.20 (Mumbai region)
+
 terraform {
   required_version = ">= 1.0"
   required_providers {
@@ -9,12 +11,7 @@ terraform {
   }
   
   backend "s3" {
-    bucket = "autostack-terraform-state"
-    key    = "production/terraform.tfstate"
-    region = "us-west-2"
-    
-    dynamodb_table = "terraform-state-lock"
-    encrypt        = true
+    # Will be configured dynamically
   }
 }
 
@@ -22,86 +19,60 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Variables
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "us-west-2"
+  default     = "ap-south-1"
 }
 
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "production"
+  default     = "minimal"
 }
 
-variable "image_tag" {
-  description = "Docker image tag"
-  type        = string
-  default     = "latest"
-}
-
-# VPC
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+# Single EC2 instance running all services
+resource "aws_instance" "autostack" {
+  ami           = data.aws_ami.amazon_linux.id
+  instance_type = "t3.micro"
+  
+  vpc_security_group_ids = [aws_security_group.autostack.id]
+  
+  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
+    docker_compose = base64encode(file("${path.module}/../docker-compose.lite.yml"))
+    env_file = base64encode(templatefile("${path.module}/app.env", {
+      jwt_secret = random_password.jwt_secret.result
+    }))
+  }))
 
   tags = {
-    Name        = "autostack-vpc"
+    Name        = "autostack-server"
     Environment = var.environment
   }
 }
 
-# Internet Gateway
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
+# Get latest Amazon Linux 2023 AMI
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
 
-  tags = {
-    Name        = "autostack-igw"
-    Environment = var.environment
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
   }
 }
 
-# Public Subnets (Single AZ for cost optimization)
-resource "aws_subnet" "public" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = data.aws_availability_zones.available.names[0]
+# Security Group
+resource "aws_security_group" "autostack" {
+  name_prefix = "autostack"
+  description = "AutoStack security group"
 
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name        = "autostack-public"
-    Environment = var.environment
-  }
-}
-
-# Route Table for Public Subnet
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-
-  tags = {
-    Name        = "autostack-public-rt"
-    Environment = var.environment
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
-}
-
-# Security Groups
-resource "aws_security_group" "alb" {
-  name_prefix = "autostack-alb"
-  vpc_id      = aws_vpc.main.id
-
+  # HTTP
   ingress {
     from_port   = 80
     to_port     = 80
@@ -109,6 +80,7 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # HTTPS
   ingress {
     from_port   = 443
     to_port     = 443
@@ -116,6 +88,23 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # API Gateway
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # SSH (for debugging)
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # All outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
@@ -124,141 +113,65 @@ resource "aws_security_group" "alb" {
   }
 
   tags = {
-    Name        = "autostack-alb-sg"
+    Name        = "autostack-sg"
     Environment = var.environment
   }
 }
 
-resource "aws_security_group" "ecs" {
-  name_prefix = "autostack-ecs"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = 0
-    to_port         = 65535
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+# S3 bucket for Terraform state (minimal cost)
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = "autostack-state-${random_id.bucket_suffix.hex}"
 
   tags = {
-    Name        = "autostack-ecs-sg"
+    Name        = "autostack-terraform-state"
     Environment = var.environment
   }
 }
 
-# Application Load Balancer
-resource "aws_lb" "main" {
-  name               = "autostack-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = [aws_subnet.public.id, aws_subnet.public_secondary.id]
-
-  enable_deletion_protection = false
-
-  tags = {
-    Name        = "autostack-alb"
-    Environment = var.environment
+resource "aws_s3_bucket_versioning" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
-# Secondary public subnet for ALB (minimum 2 AZs required)
-resource "aws_subnet" "public_secondary" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = data.aws_availability_zones.available.names[1]
+resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
 
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name        = "autostack-public-secondary"
-    Environment = var.environment
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
   }
 }
 
-resource "aws_route_table_association" "public_secondary" {
-  subnet_id      = aws_subnet.public_secondary.id
-  route_table_id = aws_route_table.public.id
+# Random resources
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
 }
 
-# ECS Cluster
-resource "aws_ecs_cluster" "main" {
-  name = "autostack-cluster"
-
-  setting {
-    name  = "containerInsights"
-    value = "enabled"
-  }
-
-  tags = {
-    Name        = "autostack-cluster"
-    Environment = var.environment
-  }
-}
-
-# EFS for persistent SQLite storage
-resource "aws_efs_file_system" "main" {
-  creation_token = "autostack-efs"
-  encrypted      = true
-
-  tags = {
-    Name        = "autostack-efs"
-    Environment = var.environment
-  }
-}
-
-resource "aws_efs_mount_target" "main" {
-  file_system_id  = aws_efs_file_system.main.id
-  subnet_id       = aws_subnet.public.id
-  security_groups = [aws_security_group.efs.id]
-}
-
-resource "aws_security_group" "efs" {
-  name_prefix = "autostack-efs"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = 2049
-    to_port         = 2049
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ecs.id]
-  }
-
-  tags = {
-    Name        = "autostack-efs-sg"
-    Environment = var.environment
-  }
-}
-
-# Data sources
-data "aws_availability_zones" "available" {
-  state = "available"
+resource "random_password" "jwt_secret" {
+  length  = 32
+  special = true
 }
 
 # Outputs
-output "vpc_id" {
-  description = "VPC ID"
-  value       = aws_vpc.main.id
+output "instance_ip" {
+  description = "Public IP of AutoStack instance"
+  value       = aws_instance.autostack.public_ip
 }
 
-output "alb_dns_name" {
-  description = "Application Load Balancer DNS name"
-  value       = aws_lb.main.dns_name
+output "api_url" {
+  description = "AutoStack API URL"
+  value       = "http://${aws_instance.autostack.public_ip}:3000"
 }
 
-output "efs_id" {
-  description = "EFS file system ID"
-  value       = aws_efs_file_system.main.id
+output "terraform_state_bucket" {
+  description = "S3 bucket for Terraform state"
+  value       = aws_s3_bucket.terraform_state.bucket
 }
 
-output "efs_dns_name" {
-  description = "EFS DNS name"
-  value       = aws_efs_file_system.main.dns_name
+output "ssh_command" {
+  description = "SSH command to connect to instance"
+  value       = "ssh -i your-key.pem ec2-user@${aws_instance.autostack.public_ip}"
 }

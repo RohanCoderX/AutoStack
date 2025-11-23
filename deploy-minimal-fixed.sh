@@ -28,10 +28,11 @@ aws s3api put-bucket-versioning \
 echo "🏗️ Preparing infrastructure..."
 cd infrastructure
 
-# Clean up any existing terraform state
+# Clean up any existing terraform state and conflicting files
 rm -rf .terraform .terraform.lock.hcl terraform.tfstate*
+rm -f minimal.tf backend.tf
 
-# Create a clean main.tf from minimal.tf
+# Create a clean main.tf
 cat > main.tf << 'EOF'
 # AutoStack Minimal Infrastructure for 10 Users
 # Monthly Cost: ~$8.20 (Mumbai region)
