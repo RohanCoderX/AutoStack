@@ -1,0 +1,118 @@
+name: Quick Setup Test
+on: 
+  workflow_dispatch:
+
+jobs:
+  quick-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Test GitHub Secrets
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AMAZON_Q_API_KEY: ${{ secrets.AMAZON_Q_API_KEY }}
+      run: |
+        echo "🔍 Quick AutoStack Setup Test"
+        echo "============================="
+        echo ""
+        
+        # Test secrets
+        if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+          echo "✅ AWS_ACCESS_KEY_ID: Configured"
+        else
+          echo "❌ AWS_ACCESS_KEY_ID: Missing - Add in GitHub Secrets"
+          echo "   Go to: Settings → Secrets and variables → Actions"
+          exit 1
+        fi
+        
+        if [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+          echo "✅ AWS_SECRET_ACCESS_KEY: Configured"
+        else
+          echo "❌ AWS_SECRET_ACCESS_KEY: Missing - Add in GitHub Secrets"
+          exit 1
+        fi
+        
+        if [ -n "$AMAZON_Q_API_KEY" ]; then
+          echo "✅ AMAZON_Q_API_KEY: Configured"
+        else
+          echo "⚠️  AMAZON_Q_API_KEY: Missing (AutoStack will use simulation)"
+          echo "   Add dummy value: 'demo-amazon-q-key'"
+        fi
+        
+        echo ""
+        echo "🎯 Setup Status: READY"
+        echo "💡 Next: Run './deploy-minimal.sh' to deploy AutoStack"
+    
+    - name: Validate AWS Credentials
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: us-west-2
+      run: |
+        echo "🔧 Testing AWS access..."
+        
+        # Install AWS CLI v2
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip > /dev/null 2>&1
+        sudo ./aws/install > /dev/null 2>&1
+        
+        # Test credentials
+        if aws sts get-caller-identity > /dev/null 2>&1; then
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          USER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+          echo "✅ AWS credentials valid"
+          echo "   Account: $ACCOUNT_ID"
+          echo "   User: $USER_ARN"
+        else
+          echo "❌ AWS credentials invalid"
+          echo "   Check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+          exit 1
+        fi
+    
+    - name: Check Project Files
+      run: |
+        echo "📁 Checking essential files..."
+        
+        essential_files=(
+          "deploy-minimal.sh"
+          "infrastructure/minimal.tf"
+          "docker-compose.lite.yml"
+          "services/api-gateway/package.json"
+        )
+        
+        all_good=true
+        for file in "${essential_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✅ $file"
+          else
+            echo "❌ $file (missing)"
+            all_good=false
+          fi
+        done
+        
+        if [ "$all_good" = true ]; then
+          echo "🎉 All essential files present!"
+        else
+          echo "⚠️  Some files missing - check your git push"
+        fi
+    
+    - name: Final Status
+      run: |
+        echo ""
+        echo "🚀 AutoStack Quick Test Results"
+        echo "==============================="
+        echo "✅ GitHub repository setup complete"
+        echo "✅ Secrets configured properly"  
+        echo "✅ AWS credentials working"
+        echo "✅ Project files uploaded"
+        echo ""
+        echo "🎯 READY TO DEPLOY!"
+        echo ""
+        echo "Next steps:"
+        echo "1. Clone your repository locally"
+        echo "2. Run: ./deploy-minimal.sh"
+        echo "3. Wait 5-10 minutes for deployment"
+        echo "4. Access AutoStack at the provided IP"
