@@ -39,7 +39,9 @@ AutoStack uses a microservices architecture with:
 
 ## 📚 Documentation
 
-Complete technical documentation is available in [`docs/AutoStack_Complete_Documentation.md`](docs/AutoStack_Complete_Documentation.md)
+- [Complete Step-by-Step Guide](STEP_BY_STEP_GUIDE.md) - Full walkthrough with demo
+- [Cost Prevention Checklist](COST_PREVENTION_CHECKLIST.md) - **MANDATORY** to avoid charges
+- [Complete Technical Documentation](docs/AutoStack_Complete_Documentation.md)
 
 ## 🛠️ Development
 
@@ -53,18 +55,20 @@ Complete technical documentation is available in [`docs/AutoStack_Complete_Docum
 ### Quick Start
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/autostack.git
-cd autostack
+git clone https://github.com/RohanCoderX/AutoStack.git
+cd AutoStack
 
-# Start development environment
-docker-compose up -d
+# Deploy AutoStack
+./deploy-minimal-fixed.sh
 
-# Run database migrations
-npm run migrate
+# Wait 5-10 minutes for services to start
+curl http://YOUR_IP:3000/health
 
-# Start the application
-npm run dev
+# ⚠️ IMPORTANT: Destroy after testing to avoid costs
+./destroy-autostack.sh
 ```
+
+**Type `yes` to stop all charges ($8.20/month → $0.00/month)**
 
 ## 🏆 Hackathon Ready
 

@@ -491,20 +491,117 @@ curl -X GET http://35.90.1.153:3000/api/deployments/1/status \
 
 ---
 
-## 🗑️ STEP 7: Clean Up (Stop Costs)
+## 🗑️ STEP 7: Clean Up (Stop ALL Costs)
 
-### 7.1 Destroy Application Infrastructure
+### 7.1 Destroy Demo Application Infrastructure
 ```bash
-curl -X DELETE http://35.90.1.153:3000/api/deployments/1 \
+# Delete the deployed e-commerce infrastructure
+curl -X DELETE http://54.214.135.29:3000/api/deployments/1 \
   -H "Authorization: Bearer $JWT_TOKEN"
 ```
 
-### 7.2 Destroy AutoStack Infrastructure
+**Expected Response:**
+```json
+{
+  "message": "Deployment destruction started",
+  "deploymentId": 1,
+  "status": "destroying",
+  "estimatedTime": "10-15 minutes"
+}
+```
+
+### 7.2 Monitor Destruction Status
 ```bash
+# Check destruction progress
+curl -X GET http://54.214.135.29:3000/api/deployments/1/status \
+  -H "Authorization: Bearer $JWT_TOKEN"
+```
+
+**Wait for status: "destroyed"**
+
+### 7.3 Destroy AutoStack Platform (CRITICAL)
+```bash
+# This destroys the AutoStack instance and stops ALL costs
 ./destroy-autostack.sh
 ```
 
-**Type `yes` when prompted to confirm destruction.**
+
+
+**Expected Output:**
+```
+✅ AutoStack completely destroyed!
+💰 All AWS costs have been stopped
+🧹 No resources remain in your account
+📊 Final cost: $0.00/month
+```
+
+### 7.4 Verify Zero Costs
+```bash
+# Verify no EC2 instances running
+aws ec2 describe-instances --region us-west-2 --query "Reservations[*].Instances[?State.Name=='running']"
+
+# Verify no S3 buckets with AutoStack
+aws s3 ls | grep autostack
+
+# Should return empty results
+```
+
+### 7.5 Emergency Manual Cleanup (If Script Fails)
+
+If the destroy script fails, manually clean up:
+
+```bash
+# 1. Find and terminate all AutoStack instances
+aws ec2 describe-instances --region us-west-2 \
+  --filters "Name=tag:Name,Values=*autostack*" \
+  --query "Reservations[*].Instances[*].InstanceId" --output text | \
+  xargs -r aws ec2 terminate-instances --region us-west-2 --instance-ids
+
+# 2. Delete all AutoStack S3 buckets
+aws s3 ls | grep autostack | awk '{print $3}' | \
+  xargs -I {} sh -c 'aws s3 rm s3://{} --recursive && aws s3 rb s3://{}'
+
+# 3. Delete security groups
+aws ec2 describe-security-groups --region us-west-2 \
+  --filters "Name=group-name,Values=autostack*" \
+  --query "SecurityGroups[*].GroupId" --output text | \
+  xargs -r aws ec2 delete-security-group --region us-west-2 --group-id
+```
+
+### 7.6 Cost Verification
+
+**Check AWS Billing Dashboard:**
+1. Go to AWS Console → Billing → Bills
+2. Verify no charges for:
+   - EC2 instances
+   - S3 storage
+   - Data transfer
+   - Load balancers
+   - RDS/DocumentDB
+   - ElastiCache
+
+**Expected Result**: $0.00 ongoing costs
+
+---
+
+## ⚠️ IMPORTANT COST WARNING
+
+**ALWAYS run the destroy script after testing!**
+
+- **Demo infrastructure**: $245.80/month if not destroyed
+- **AutoStack platform**: $8.20/month if not destroyed
+- **Total potential cost**: $254.00/month
+
+**After destruction**: $0.00/month ✅
+
+### Quick Destroy Commands:
+```bash
+# Destroy everything in 2 commands
+curl -X DELETE http://54.214.135.29:3000/api/deployments/1 -H "Authorization: Bearer $JWT_TOKEN"
+./destroy-autostack.sh
+```
+
+**Type `yes` to confirm and stop all costs immediately.**
 
 ---
 
